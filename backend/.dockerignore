@@ -1,0 +1,6 @@
+# Don't copy build output or tests into the image
+build/
+*.o
+*.a
+layer1_test
+backend_test

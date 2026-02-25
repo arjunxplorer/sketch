@@ -1,0 +1,9 @@
+# Render Blueprint - Deploy CollabBoard backend as Docker Web Service
+# https://render.com/docs/blueprint-spec
+# Render automatically sets PORT - main.cpp reads it from env
+services:
+  - type: web
+    name: collabboard-backend
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
