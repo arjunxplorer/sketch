@@ -10,10 +10,11 @@ import { PresencePanel } from './PresencePanel';
 import { ConnectionStatus } from './ConnectionStatus';
 import { JoinModal } from './JoinModal';
 import { Toast } from './Toast';
-import { useConnectionState } from '../hooks/useWebSocket';
+import { useConnectionState, useWebSocket } from '../hooks/useWebSocket';
 import { useRoomStore } from '../store/roomStore';
 import { useRoomId, useDisconnect, useSetActiveTool, useSelection } from '../store/selectors';
 import { ToolType } from '../lib/protocol';
+import { loadRoomCredentials } from '../utils/roomPersistence';
 
 // Canvas dimensions
 const CANVAS_WIDTH = 1920;
@@ -22,23 +23,37 @@ const CANVAS_HEIGHT = 1080;
 const TOAST_DURATION_MS = 2000;
 
 export function BoardPage() {
-  const { isConnected } = useConnectionState();
+  const { isConnected, isConnecting } = useConnectionState();
+  const { connect } = useWebSocket();
   const roomId = useRoomId();
   const disconnect = useDisconnect();
   const setActiveTool = useSetActiveTool();
   const clearSelection = useSelection().clearSelection;
-  const [showJoinModal, setShowJoinModal] = useState(!isConnected);
+  const hasAttemptedAutoReconnect = useRef(false);
+  const [showJoinModal, setShowJoinModal] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
 
-  // Show join modal when disconnected
+  // Auto-reconnect on load when we have stored credentials
   useEffect(() => {
-    if (!isConnected && !roomId) {
+    if (hasAttemptedAutoReconnect.current) return;
+    const credentials = loadRoomCredentials();
+    if (credentials) {
+      hasAttemptedAutoReconnect.current = true;
+      connect(credentials.roomId, credentials.userName, credentials.password);
+    } else {
       setShowJoinModal(true);
-    } else if (isConnected) {
-      setShowJoinModal(false);
     }
-  }, [isConnected, roomId]);
+  }, [connect]);
+
+  // Show join modal when disconnected (and not auto-connecting)
+  useEffect(() => {
+    if (isConnected) {
+      setShowJoinModal(false);
+    } else if (!isConnecting && (hasAttemptedAutoReconnect.current || !loadRoomCredentials())) {
+      setShowJoinModal(true);
+    }
+  }, [isConnected, isConnecting]);
 
   // Handle leave room
   const handleLeaveRoom = useCallback(() => {
@@ -199,13 +214,22 @@ export function BoardPage() {
           <div className="disconnected-state">
             <div className="disconnected-content">
               <h2>Welcome to CollabBoard</h2>
-              <p>Join a room to start collaborating</p>
-              <button
-                className="btn-primary"
-                onClick={() => setShowJoinModal(true)}
-              >
-                Join Room
-              </button>
+              {isConnecting ? (
+                <>
+                  <p>Reconnecting...</p>
+                  <div className="spinner" />
+                </>
+              ) : (
+                <>
+                  <p>Join a room to start collaborating</p>
+                  <button
+                    className="btn-primary"
+                    onClick={() => setShowJoinModal(true)}
+                  >
+                    Join Room
+                  </button>
+                </>
+              )}
             </div>
           </div>
         )}

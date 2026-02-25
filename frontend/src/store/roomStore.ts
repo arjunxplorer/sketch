@@ -42,6 +42,7 @@ import { Outbox } from '../lib/outbox';
 import { Inbox } from '../lib/inbox';
 import { generateUUID } from '../utils/idGenerator';
 import { hitTest } from '../utils/hitTest';
+import { saveRoomCredentials, clearRoomCredentials } from '../utils/roomPersistence';
 
 // =============================================================================
 // State Interface
@@ -60,6 +61,8 @@ export interface RoomState {
   userName: string | null;
   userColor: string | null;
   roomId: string | null;
+  /** Password used for current join attempt (for persistence on success) */
+  lastJoinPassword: string | null;
 
   // Participants
   users: Map<string, UserInfo>;
@@ -281,6 +284,7 @@ const initialState = {
   userName: null,
   userColor: null,
   roomId: null,
+  lastJoinPassword: null,
   users: new Map<string, UserInfo>(),
   cursors: new Map<string, CursorState>(),
   strokes: [] as Stroke[],
@@ -358,6 +362,7 @@ export const useRoomStore = create<RoomState>()(
         inbox,
         roomId,
         userName,
+        lastJoinPassword: password ?? null,
         lastError: null,
       });
 
@@ -374,6 +379,9 @@ export const useRoomStore = create<RoomState>()(
       if (wsClient) {
         wsClient.disconnect();
       }
+
+      // Clear stored credentials so refresh doesn't auto-reconnect to the room we just left
+      clearRoomCredentials();
 
       set({
         ...initialState,
@@ -413,6 +421,15 @@ export const useRoomStore = create<RoomState>()(
             if (user.userId !== data.userId) {
               usersMap.set(user.userId, user);
             }
+          }
+
+          // Persist credentials for auto-reconnect on refresh
+          if (state.roomId && state.userName) {
+            saveRoomCredentials(
+              state.roomId,
+              state.userName,
+              state.lastJoinPassword ?? undefined
+            );
           }
 
           set({

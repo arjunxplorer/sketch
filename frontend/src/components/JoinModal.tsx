@@ -2,8 +2,9 @@
  * Modal for joining a room.
  */
 
-import { useState, FormEvent } from 'react';
+import { useState, useEffect, FormEvent } from 'react';
 import { useWebSocket } from '../hooks/useWebSocket';
+import { loadRoomCredentials } from '../utils/roomPersistence';
 
 interface JoinModalProps {
   isOpen: boolean;
@@ -17,6 +18,18 @@ export function JoinModal({ isOpen, onClose }: JoinModalProps) {
   const [showPassword, setShowPassword] = useState(false);
   
   const { connect, connectionStatus, lastError } = useWebSocket();
+
+  // Pre-fill from localStorage when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      const credentials = loadRoomCredentials();
+      if (credentials) {
+        setRoomId(credentials.roomId);
+        setUserName(credentials.userName);
+        setPassword(credentials.password ?? '');
+      }
+    }
+  }, [isOpen]);
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();

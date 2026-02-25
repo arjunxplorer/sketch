@@ -704,7 +704,8 @@ TEST_F(BoardServiceTest, GetSnapshot) {
 
 class IntegrationTest : public ::testing::Test {
 protected:
-    RoomService roomService;
+    // Use 0s grace so UserLeavesAndRoomCleanup test passes (room deleted immediately)
+    RoomService roomService{std::chrono::seconds(0)};
     std::vector<std::pair<std::string, std::string>> messages;  // (userId, message)
     
     RoomService::SendFunc createSendFunc(const std::string& forUser) {
@@ -783,10 +784,11 @@ TEST_F(IntegrationTest, UserLeavesAndRoomCleanup) {
     
     EXPECT_EQ(roomService.getRoomCount(), 1);
     
-    // User leaves
+    // User leaves - with 0s grace period, room is scheduled for immediate deletion
     roomService.leaveRoom("temp-room", result.oderId, createSendFunc("broadcast"));
     
-    // Room should be deleted since it's empty
+    // Trigger cleanup (getRoom runs cleanup) - room is past deadline, gets deleted
+    roomService.getRoom("temp-room");
     EXPECT_EQ(roomService.getRoomCount(), 0);
     EXPECT_FALSE(roomService.roomExists("temp-room"));
 }

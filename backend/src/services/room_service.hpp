@@ -7,6 +7,7 @@
 #include <optional>
 #include <functional>
 #include <array>
+#include <chrono>
 
 #include "../models/room.hpp"
 #include "../models/user_info.hpp"
@@ -47,7 +48,9 @@ class RoomService {
 public:
     using SendFunc = std::function<void(std::shared_ptr<WsSession>, const std::string&)>;
 
-    RoomService() : nextColorIndex_(0) {
+    explicit RoomService(std::chrono::seconds emptyRoomGracePeriod = std::chrono::seconds(60))
+        : emptyRoomGracePeriod_(emptyRoomGracePeriod)
+        , nextColorIndex_(0) {
         // Initialize color palette
         colorPalette_ = {
             "#FF5733", "#33FF57", "#3357FF", "#FF33F5", "#F5FF33",
@@ -67,7 +70,11 @@ public:
     std::shared_ptr<Room> getOrCreateRoom(const std::string& roomId, 
                                            const std::string& password = "") {
         std::lock_guard<std::mutex> lock(roomsMutex_);
-        
+        cleanupExpiredRoomsLocked();
+
+        // Cancel any pending deletion - someone is joining
+        roomsPendingDeletion_.erase(roomId);
+
         auto it = rooms_.find(roomId);
         if (it != rooms_.end()) {
             return it->second;
@@ -84,6 +91,7 @@ public:
      */
     std::shared_ptr<Room> getRoom(const std::string& roomId) {
         std::lock_guard<std::mutex> lock(roomsMutex_);
+        cleanupExpiredRoomsLocked();
         auto it = rooms_.find(roomId);
         return (it != rooms_.end()) ? it->second : nullptr;
     }
@@ -198,9 +206,10 @@ public:
             sendFunc(s, leaveMsg);
         });
 
-        // Delete room if empty
+        // Schedule room deletion if empty - grace period allows reconnection on refresh
         if (room->isEmpty()) {
-            deleteRoom(roomId);
+            auto deadline = std::chrono::steady_clock::now() + emptyRoomGracePeriod_;
+            roomsPendingDeletion_[roomId] = deadline;
         }
     }
 
@@ -304,6 +313,22 @@ public:
 
 private:
     /**
+     * @brief Delete rooms that have been empty past the grace period.
+     * Must be called with roomsMutex_ held.
+     */
+    void cleanupExpiredRoomsLocked() {
+        auto now = std::chrono::steady_clock::now();
+        for (auto it = roomsPendingDeletion_.begin(); it != roomsPendingDeletion_.end(); ) {
+            if (it->second <= now) {
+                rooms_.erase(it->first);
+                it = roomsPendingDeletion_.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+
+    /**
      * @brief Get the next color from the palette.
      */
     std::string getNextColor() {
@@ -313,7 +338,9 @@ private:
         return color;
     }
 
+    std::chrono::seconds emptyRoomGracePeriod_;
     std::unordered_map<std::string, std::shared_ptr<Room>> rooms_;
+    std::unordered_map<std::string, std::chrono::steady_clock::time_point> roomsPendingDeletion_;
     mutable std::mutex roomsMutex_;
 
     PresenceService presenceService_;
