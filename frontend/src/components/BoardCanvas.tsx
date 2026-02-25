@@ -249,9 +249,7 @@ function BoardCanvasComponent({ width, height, containerRef }: BoardCanvasProps)
         const diamond = element as DiamondElement;
         const cx = diamond.x + diamond.width / 2;
         const cy = diamond.y + diamond.height / 2;
-        const hw = Math.abs(diamond.width / 2);
-        const hh = Math.abs(diamond.height / 2);
-        
+
         ctx.beginPath();
         ctx.moveTo(cx, diamond.y);
         ctx.lineTo(diamond.x + diamond.width, cy);

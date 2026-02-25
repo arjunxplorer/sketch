@@ -4,6 +4,7 @@
 
 import {
   BaseMessage,
+  ClientMessage,
   parseServerMessage,
   createPingMessage,
   serializeMessage,
@@ -101,7 +102,7 @@ export class WsClient {
   /**
    * Send a message to the server.
    */
-  send<T>(message: { type: string; seq: number; data: T }): boolean {
+  send<T>(message: ClientMessage<T>): boolean {
     if (!this.isConnected()) {
       console.warn('Cannot send message: not connected');
       return false;

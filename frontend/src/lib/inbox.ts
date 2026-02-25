@@ -3,7 +3,7 @@
  * Ensures messages are processed in sequence order.
  */
 
-import { BaseMessage, ProtocolConstants } from './protocol';
+import { BaseMessage } from './protocol';
 
 export type MessageHandler = (message: BaseMessage) => void;
 
@@ -143,40 +143,6 @@ export class Inbox {
       
       default:
         return 'unknown';
-    }
-  }
-
-  private processOrderedMessage(message: BaseMessage): void {
-    const seq = message.seq;
-
-    // If this is the next expected message, process immediately
-    if (seq === this.lastSeq + 1) {
-      this.lastSeq = seq;
-      this.handler(message);
-      this.processQueuedMessages();
-      return;
-    }
-
-    // If this is an old/duplicate message, ignore
-    if (seq <= this.lastSeq) {
-      return;
-    }
-
-    // We have a gap - queue this message
-    if (this.messageQueue.size < this.maxQueueSize) {
-      this.messageQueue.set(seq, {
-        message,
-        receivedAt: Date.now(),
-      });
-
-      // Schedule queue processing
-      this.scheduleQueueProcessing();
-    } else {
-      // Queue is full, force process to catch up
-      console.warn('Message queue full, forcing processing');
-      this.forceProcessQueue();
-      this.handler(message);
-      this.lastSeq = seq;
     }
   }
 

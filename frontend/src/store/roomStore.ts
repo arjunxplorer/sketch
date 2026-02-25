@@ -35,7 +35,6 @@ import {
   createStrokeStartMessage,
   createStrokeEndMessage,
   createStrokeMoveMessage,
-  serializeMessage,
   ProtocolConstants,
 } from '../lib/protocol';
 import { WsClient, ConnectionStatus } from '../lib/wsClient';
@@ -724,7 +723,7 @@ export const useRoomStore = create<RoomState>()(
     // =========================================================================
 
     startElement: (x: number, y: number) => {
-      const { activeTool, penColor, penWidth, fillColor, fontSize, userId } = get();
+      const { activeTool, penColor, penWidth, fillColor, userId } = get();
       
       if (!userId) return;
 
@@ -834,7 +833,7 @@ export const useRoomStore = create<RoomState>()(
     },
 
     updateElement: (x: number, y: number) => {
-      const { activeElement, activeTool } = get();
+      const { activeElement } = get();
       
       if (!activeElement) return;
 
@@ -881,7 +880,7 @@ export const useRoomStore = create<RoomState>()(
     },
 
     finishElement: () => {
-      const { activeElement, wsClient, outbox, strokes } = get();
+      const { activeElement, wsClient, outbox } = get();
       
       if (!activeElement || !wsClient) return;
 
@@ -947,15 +946,6 @@ export const useRoomStore = create<RoomState>()(
         { x, y },
         { x: x + 1, y: y + 1 },
       ];
-
-      const stroke: Stroke = {
-        strokeId,
-        userId,
-        points,
-        color: textColor,
-        width: 1,
-        complete: true,
-      };
 
       // Send via backend
       const startMsg = createStrokeStartMessage(strokeId, textColor, 1);

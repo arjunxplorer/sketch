@@ -91,8 +91,10 @@ function getElementBounds(element: DrawingElement): { minX: number; minY: number
         maxY: text.y + approxHeight + padding,
       };
     }
-    default:
-      return { minX: element.x, minY: element.y, maxX: element.x, maxY: element.y };
+    default: {
+      const base = element as { x: number; y: number };
+      return { minX: base.x, minY: base.y, maxX: base.x, maxY: base.y };
+    }
   }
 }
 

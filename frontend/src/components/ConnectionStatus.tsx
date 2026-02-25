@@ -6,7 +6,7 @@
 import { useConnectionState } from '../hooks/useWebSocket';
 
 export function ConnectionStatus() {
-  const { status, error, isConnected, isConnecting } = useConnectionState();
+  const { status, error, isConnecting } = useConnectionState();
 
   const getStatusColor = () => {
     switch (status) {
