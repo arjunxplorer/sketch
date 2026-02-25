@@ -7,6 +7,7 @@
 #include <chrono>
 
 #include <boost/beast/core.hpp>
+#include <boost/beast/http.hpp>
 #include <boost/beast/websocket.hpp>
 #include <boost/asio/strand.hpp>
 
@@ -65,6 +66,22 @@ public:
 
         // Accept the WebSocket handshake
         ws_.async_accept(
+            beast::bind_front_handler(&WsSession::onAccept, shared_from_this()));
+    }
+
+    /**
+     * @brief Accept WebSocket handshake with a pre-read HTTP request.
+     * Used when HTTP connection handler has already read the request (e.g. for /health routing).
+     */
+    template <class Body>
+    void runWithRequest(beast::http::request<Body> const& req) {
+        ws_.set_option(websocket::stream_base::timeout::suggested(
+            beast::role_type::server));
+        ws_.set_option(websocket::stream_base::decorator(
+            [](websocket::response_type& res) {
+                res.set(beast::http::field::server, "CollabBoard/1.0");
+            }));
+        ws_.async_accept(req,
             beast::bind_front_handler(&WsSession::onAccept, shared_from_this()));
     }
 

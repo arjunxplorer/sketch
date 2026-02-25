@@ -8,7 +8,7 @@
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/strand.hpp>
 
-#include "ws_session.hpp"
+#include "http_connection.hpp"
 #include "../services/room_service.hpp"
 
 namespace collabboard {
@@ -94,8 +94,8 @@ private:
         if (ec) {
             fail(ec, "accept");
         } else {
-            // Create the session and run it
-            std::make_shared<WsSession>(std::move(socket), roomService_)->run();
+            // HttpConnection reads request first, routes /health or WebSocket upgrade
+            std::make_shared<HttpConnection>(std::move(socket), roomService_)->run();
         }
 
         // Accept another connection
