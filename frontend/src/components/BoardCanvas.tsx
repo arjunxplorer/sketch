@@ -6,7 +6,7 @@
 import { useRef, useEffect, useCallback, useState, memo } from 'react';
 import { useDrawing } from '../hooks/useDrawing';
 import { useStrokes, useActiveStroke, useElements, useActiveElement, useActiveTool, useElementActions, usePenColor, useFontSize, useSelection } from '../store/selectors';
-import { getBoundsForSelection } from '../utils/hitTest';
+import { getBoundsForSelection, hitTest } from '../utils/hitTest';
 import { TextInput } from './TextInput';
 import { 
   Stroke, 
@@ -24,21 +24,31 @@ import {
 interface BoardCanvasProps {
   width: number;
   height: number;
+  offsetX?: number;
+  offsetY?: number;
   containerRef?: React.RefObject<HTMLDivElement | null>;
 }
 
-function BoardCanvasComponent({ width, height, containerRef }: BoardCanvasProps) {
+function BoardCanvasComponent({ width, height, offsetX = 0, offsetY = 0, containerRef }: BoardCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const offscreenCanvasRef = useRef<HTMLCanvasElement | null>(null);
   
-  // Text input state
-  const [textInputPos, setTextInputPos] = useState<{ x: number; y: number } | null>(null);
+  // Text input state: canvas coords + optional existing text element for editing
+  const [textInputState, setTextInputState] = useState<{
+    canvasX: number;
+    canvasY: number;
+    existingElement?: TextElement;
+    scaleX: number;
+    scaleY: number;
+  } | null>(null);
   const penColor = usePenColor();
   const fontSize = useFontSize();
-  const { addTextElement } = useElementActions();
+  const { addTextElement, updateTextElement, deleteTextElement } = useElementActions();
+  const justDismissedRef = useRef(false);
   
   // Legacy strokes for backward compatibility
-  const completedStrokes = useStrokes();
+  const strokes = useStrokes();
+  const completedStrokes = strokes.filter((s) => s.complete);
   const activeStroke = useActiveStroke();
   
   // New element system
@@ -52,12 +62,31 @@ function BoardCanvasComponent({ width, height, containerRef }: BoardCanvasProps)
     handlePointerMove,
     handlePointerUp,
     handlePointerLeave,
-  } = useDrawing({ canvasRef, containerRef });
+  } = useDrawing({ canvasRef, containerRef, offsetX, offsetY });
+
+  // Open text editor at position (used by Text tool click and Select tool double-click)
+  const openTextEditor = useCallback((canvasX: number, canvasY: number, existing?: TextElement) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const textScaleX = rect.width / canvas.width;
+    const textScaleY = rect.height / canvas.height;
+    setTextInputState({
+      canvasX: existing ? existing.x : canvasX,
+      canvasY: existing ? existing.y : canvasY,
+      existingElement: existing,
+      scaleX: textScaleX,
+      scaleY: textScaleY,
+    });
+  }, []);
 
   // Custom pointer down handler for text tool
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
-    // Don't process if text input is already showing
-    if (textInputPos) return;
+    if (textInputState) return;
+    if (justDismissedRef.current) {
+      justDismissedRef.current = false;
+      return;
+    }
     
     if (activeTool === ToolType.Text) {
       e.preventDefault();
@@ -67,33 +96,101 @@ function BoardCanvasComponent({ width, height, containerRef }: BoardCanvasProps)
       if (!canvas) return;
       
       const rect = canvas.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
-      
-      setTextInputPos({ x, y });
+      const coordScaleX = canvas.width / rect.width;
+      const coordScaleY = canvas.height / rect.height;
+      const displayX = e.clientX - rect.left;
+      const displayY = e.clientY - rect.top;
+      const canvasX = displayX * coordScaleX;
+      const canvasY = displayY * coordScaleY;
+      // Convert to content coords (account for offset when content extends left/up)
+      const contentX = canvasX - offsetX;
+      const contentY = canvasY - offsetY;
+
+      // Scale for TextInput positioning (display size / logical size)
+      const textScaleX = rect.width / canvas.width;
+      const textScaleY = rect.height / canvas.height;
+
+      // Check if clicking on existing text element (for editing)
+      const completedElements = elements.filter((e) => e.complete);
+      const hit = hitTest(contentX, contentY, completedStrokes, completedElements);
+
+      if (hit?.type === 'element') {
+        const existing = completedElements.find((el) => el.id === hit.id && el.type === 'text') as TextElement | undefined;
+        if (existing) {
+          openTextEditor(contentX, contentY, existing);
+          return;
+        }
+      }
+
+      openTextEditor(contentX, contentY);
       return;
     }
     baseHandlePointerDown(e);
-  }, [activeTool, baseHandlePointerDown, textInputPos]);
+  }, [activeTool, baseHandlePointerDown, textInputState, elements, completedStrokes, openTextEditor, offsetX, offsetY]);
+
+  // Double-click on text with Select tool opens editor (allows any user to edit)
+  const handleDoubleClick = useCallback((e: React.MouseEvent) => {
+    if (textInputState) return;
+    if (activeTool !== ToolType.Select) return;
+
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const canvasX = (e.clientX - rect.left) * scaleX;
+    const canvasY = (e.clientY - rect.top) * scaleY;
+    const contentX = canvasX - offsetX;
+    const contentY = canvasY - offsetY;
+
+    const completedElements = elements.filter((el) => el.complete);
+    const hit = hitTest(contentX, contentY, completedStrokes, completedElements);
+    if (hit?.type === 'element') {
+      const existing = completedElements.find((el) => el.id === hit.id && el.type === 'text') as TextElement | undefined;
+      if (existing) {
+        e.preventDefault();
+        e.stopPropagation();
+        openTextEditor(contentX, contentY, existing);
+      }
+    }
+  }, [activeTool, textInputState, elements, completedStrokes, openTextEditor, offsetX, offsetY]);
 
   // Handle text submit
   const handleTextSubmit = useCallback((text: string) => {
-    if (textInputPos && text.trim()) {
-      const canvas = canvasRef.current;
-      if (canvas) {
-        const rect = canvas.getBoundingClientRect();
-        const scaleX = canvas.width / rect.width;
-        const scaleY = canvas.height / rect.height;
-        const canvasX = textInputPos.x * scaleX;
-        const canvasY = textInputPos.y * scaleY;
-        addTextElement(canvasX, canvasY, text);
-      }
+    if (!textInputState) {
+      setTextInputState(null);
+      return;
     }
-    setTextInputPos(null);
-  }, [textInputPos, addTextElement]);
+    justDismissedRef.current = true;
+    setTimeout(() => { justDismissedRef.current = false; }, 150);
+
+    if (!text.trim()) {
+      if (textInputState.existingElement) {
+        deleteTextElement(textInputState.existingElement.id);
+      }
+      setTextInputState(null);
+      return;
+    }
+
+    if (textInputState.existingElement) {
+      // Skip update if text unchanged - avoids delete+add with same id which causes
+      // the editor to receive only delete (and lose the text) while others get both
+      if (text === textInputState.existingElement.text) {
+        setTextInputState(null);
+        return;
+      }
+      updateTextElement(textInputState.existingElement.id, text);
+    } else {
+      addTextElement(textInputState.canvasX, textInputState.canvasY, text);
+    }
+    setTextInputState(null);
+  }, [textInputState, addTextElement, updateTextElement, deleteTextElement]);
 
   const handleTextCancel = useCallback(() => {
-    setTextInputPos(null);
+    justDismissedRef.current = true;
+    setTimeout(() => { justDismissedRef.current = false; }, 150);
+    setTextInputState(null);
   }, []);
 
   // Get cursor style based on active tool
@@ -302,23 +399,32 @@ function BoardCanvasComponent({ width, height, containerRef }: BoardCanvasProps)
     const offCtx = offscreen?.getContext('2d');
     if (!offscreen || !offCtx) return;
 
-    // Get completed items
-    const completedStrokesFiltered = completedStrokes.filter(s => s.complete);
-    const completedElements = elements.filter(e => e.complete);
+    // Get completed items - exclude text being edited to avoid ghost/double text
+    const editingId = textInputState?.existingElement?.id;
+    const completedElements = elements.filter(e => e.complete && e.id !== editingId);
 
     // Full redraw - simpler and more reliable
     drawBackground(offCtx);
-    
+
+    if (offsetX !== 0 || offsetY !== 0) {
+      offCtx.save();
+      offCtx.translate(offsetX, offsetY);
+    }
+
     // Draw all completed strokes
-    for (const stroke of completedStrokesFiltered) {
+    for (const stroke of completedStrokes) {
       drawStroke(offCtx, stroke);
     }
-    
+
     // Draw all completed elements
     for (const element of completedElements) {
       drawElement(offCtx, element);
     }
-  }, [completedStrokes, elements, drawBackground, drawStroke, drawElement]);
+
+    if (offsetX !== 0 || offsetY !== 0) {
+      offCtx.restore();
+    }
+  }, [width, height, offsetX, offsetY, completedStrokes, elements, textInputState?.existingElement?.id, drawBackground, drawStroke, drawElement]);
 
   // Render main canvas
   useEffect(() => {
@@ -329,6 +435,11 @@ function BoardCanvasComponent({ width, height, containerRef }: BoardCanvasProps)
 
     // Copy offscreen canvas
     ctx.drawImage(offscreen, 0, 0);
+
+    if (offsetX !== 0 || offsetY !== 0) {
+      ctx.save();
+      ctx.translate(offsetX, offsetY);
+    }
 
     // Draw in-progress legacy strokes
     for (const stroke of completedStrokes) {
@@ -369,7 +480,11 @@ function BoardCanvasComponent({ width, height, containerRef }: BoardCanvasProps)
         ctx.setLineDash([]);
       }
     }
-  }, [completedStrokes, elements, activeStroke, activeElement, selectedStrokeId, selectedElementId, drawStroke, drawElement]);
+
+    if (offsetX !== 0 || offsetY !== 0) {
+      ctx.restore();
+    }
+  }, [width, height, offsetX, offsetY, completedStrokes, elements, activeStroke, activeElement, selectedStrokeId, selectedElementId, drawStroke, drawElement]);
 
   return (
     <div className="canvas-wrapper-inner" style={{ position: 'relative', width, height }}>
@@ -382,17 +497,22 @@ function BoardCanvasComponent({ width, height, containerRef }: BoardCanvasProps)
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerLeave={handlePointerLeave}
+      onDoubleClick={handleDoubleClick}
       style={{
           cursor: getCursor(),
         touchAction: 'none',
       }}
     />
-      {textInputPos && (
+      {textInputState && (
         <TextInput
-          x={textInputPos.x}
-          y={textInputPos.y}
-          fontSize={fontSize}
-          color={penColor}
+          x={textInputState.canvasX + offsetX}
+          y={textInputState.canvasY + offsetY}
+          fontSize={textInputState.existingElement?.fontSize ?? fontSize}
+          color={textInputState.existingElement?.color ?? penColor}
+          initialValue={textInputState.existingElement?.text}
+          elementId={textInputState.existingElement?.id}
+          scaleX={textInputState.scaleX}
+          scaleY={textInputState.scaleY}
           onSubmit={handleTextSubmit}
           onCancel={handleTextCancel}
         />

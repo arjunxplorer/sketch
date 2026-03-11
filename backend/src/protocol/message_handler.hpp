@@ -75,6 +75,10 @@ public:
                 handleStrokeMove(roomId, oderId, data, sendFunc);
                 break;
 
+            case MessageType::StrokeDelete:
+                handleStrokeDelete(roomId, oderId, data, sendFunc);
+                break;
+
             case MessageType::Ping:
                 handlePing(session, msg, sendFunc);
                 break;
@@ -226,6 +230,27 @@ private:
         float dy = data["dy"].get<float>();
 
         auto error = roomService_.handleStrokeMove(roomId, oderId, strokeId, dx, dy, sendFunc);
+        (void)error;
+    }
+
+    /**
+     * @brief Handle stroke_delete message.
+     */
+    void handleStrokeDelete(const std::string& roomId,
+                            const std::string& oderId,
+                            const json& data,
+                            SendFunc sendFunc) {
+        if (roomId.empty() || oderId.empty()) {
+            return;
+        }
+
+        if (!MessageCodec::validateStrokeDelete(data)) {
+            return;
+        }
+
+        std::string strokeId = data["strokeId"].get<std::string>();
+
+        auto error = roomService_.handleStrokeDelete(roomId, oderId, strokeId, sendFunc);
         (void)error;
     }
 

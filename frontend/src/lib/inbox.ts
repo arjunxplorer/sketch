@@ -133,6 +133,7 @@ export class Inbox {
       case 'stroke_add':
       case 'stroke_end':
       case 'stroke_move':
+      case 'stroke_delete':
         return 'drawing';
       
       case 'room_state':

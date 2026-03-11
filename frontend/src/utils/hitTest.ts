@@ -81,14 +81,20 @@ function getElementBounds(element: DrawingElement): { minX: number; minY: number
     }
     case 'text': {
       const text = element as { x: number; y: number; text: string; fontSize: number };
-      // Approximate text width: ~0.6 * fontSize per character
-      const approxWidth = text.text.length * text.fontSize * 0.6;
-      const approxHeight = text.fontSize * 1.2;
+      const lines = text.text.split('\n');
+      const lineHeight = text.fontSize * 1.2;
+      const charWidth = text.fontSize * 0.6;
+      // Max line width (longest line)
+      let maxLineWidth = 0;
+      for (const line of lines) {
+        maxLineWidth = Math.max(maxLineWidth, line.length * charWidth);
+      }
+      const totalHeight = lines.length * lineHeight;
       return {
         minX: text.x - padding,
         minY: text.y - padding,
-        maxX: text.x + approxWidth + padding,
-        maxY: text.y + approxHeight + padding,
+        maxX: text.x + maxLineWidth + padding,
+        maxY: text.y + totalHeight + padding,
       };
     }
     default: {
@@ -133,6 +139,112 @@ export function hitTest(
   }
 
   return null;
+}
+
+/**
+ * Check if a point is within radius of any eraser point.
+ */
+function pointNearEraserPath(
+  x: number,
+  y: number,
+  eraserPoints: { x: number; y: number }[],
+  radius: number
+): boolean {
+  for (const ep of eraserPoints) {
+    const dx = x - ep.x;
+    const dy = y - ep.y;
+    if (dx * dx + dy * dy <= radius * radius) return true;
+  }
+  return false;
+}
+
+/**
+ * Find stroke and element IDs that overlap with the eraser path.
+ * Returns IDs that can be deleted (strokes in backend; text elements use strokeId).
+ */
+export function getErasedIds(
+  eraserPoints: { x: number; y: number }[],
+  eraserRadius: number,
+  strokes: Stroke[],
+  elements: DrawingElement[]
+): string[] {
+  const ids: string[] = [];
+  const seen = new Set<string>();
+
+  // Check strokes - stroke overlaps if any point is within eraser radius
+  for (const stroke of strokes) {
+    if (!stroke.complete || stroke.points.length < 1) continue;
+    for (const p of stroke.points) {
+      if (pointNearEraserPath(p.x, p.y, eraserPoints, eraserRadius)) {
+        if (!seen.has(stroke.strokeId)) {
+          seen.add(stroke.strokeId);
+          ids.push(stroke.strokeId);
+        }
+        break;
+      }
+    }
+  }
+
+  // Check elements (text has id = strokeId; shapes are frontend-only, delete locally)
+  for (const el of elements) {
+    if (!el.complete) continue;
+    const bounds = getElementBounds(el);
+    // Expand bounds by eraser radius and check if any eraser point is inside
+    const expanded = {
+      minX: bounds.minX - eraserRadius,
+      minY: bounds.minY - eraserRadius,
+      maxX: bounds.maxX + eraserRadius,
+      maxY: bounds.maxY + eraserRadius,
+    };
+    for (const ep of eraserPoints) {
+      if (pointInBounds(ep.x, ep.y, expanded)) {
+        if (!seen.has(el.id)) {
+          seen.add(el.id);
+          ids.push(el.id); // For text, id = strokeId; for shapes, we'll handle in store
+        }
+        break;
+      }
+    }
+  }
+
+  return ids;
+}
+
+/**
+ * Get the bounding box of all content (strokes + elements).
+ * Returns null if there is no content.
+ */
+export function getContentBounds(
+  strokes: Stroke[],
+  elements: DrawingElement[]
+): { minX: number; minY: number; maxX: number; maxY: number } | null {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  let hasContent = false;
+
+  for (const stroke of strokes) {
+    if (stroke.points.length < 1) continue;
+    const b = getStrokeBounds(stroke);
+    minX = Math.min(minX, b.minX);
+    minY = Math.min(minY, b.minY);
+    maxX = Math.max(maxX, b.maxX);
+    maxY = Math.max(maxY, b.maxY);
+    hasContent = true;
+  }
+
+  for (const el of elements) {
+    const b = getElementBounds(el);
+    minX = Math.min(minX, b.minX);
+    minY = Math.min(minY, b.minY);
+    maxX = Math.max(maxX, b.maxX);
+    maxY = Math.max(maxY, b.maxY);
+    hasContent = true;
+  }
+
+  if (!hasContent) return null;
+  return { minX, minY, maxX, maxY };
 }
 
 /**

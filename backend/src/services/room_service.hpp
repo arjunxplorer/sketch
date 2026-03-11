@@ -304,6 +304,21 @@ public:
         return boardService_.handleStrokeMove(*room, oderId, strokeId, dx, dy, sendFunc);
     }
 
+    /**
+     * @brief Route a stroke_delete message.
+     */
+    std::optional<ErrorCode> handleStrokeDelete(const std::string& roomId,
+                                                 const std::string& oderId,
+                                                 const std::string& strokeId,
+                                                 SendFunc sendFunc) {
+        auto room = getRoom(roomId);
+        if (!room) {
+            return ErrorCode::RoomNotFound;
+        }
+
+        return boardService_.handleStrokeDelete(*room, oderId, strokeId, sendFunc);
+    }
+
     // =========================================================================
     // Service Access
     // =========================================================================

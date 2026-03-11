@@ -12,18 +12,29 @@ import { JoinModal } from './JoinModal';
 import { Toast } from './Toast';
 import { useConnectionState, useWebSocket } from '../hooks/useWebSocket';
 import { useRoomStore } from '../store/roomStore';
-import { useRoomId, useDisconnect, useSetActiveTool, useSelection } from '../store/selectors';
+import { useRoomId, useDisconnect, useSetActiveTool, useSelection, useCanvasDimensions, useZoomLevel, useSetZoomLevel } from '../store/selectors';
 import { ToolType } from '../lib/protocol';
 import { loadRoomCredentials } from '../utils/roomPersistence';
-
-// Canvas dimensions
-const CANVAS_WIDTH = 1920;
-const CANVAS_HEIGHT = 1080;
 
 const TOAST_DURATION_MS = 2000;
 
 export function BoardPage() {
   const { isConnected, isConnecting } = useConnectionState();
+  const canvasDimensions = useCanvasDimensions();
+  const zoomLevel = useZoomLevel();
+  const setZoomLevel = useSetZoomLevel();
+
+  // Ctrl/Cmd + scroll to zoom
+  const handleCanvasWheel = useCallback(
+    (e: React.WheelEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      e.preventDefault();
+      const delta = e.deltaY > 0 ? -0.1 : 0.1;
+      const current = useRoomStore.getState().zoomLevel;
+      setZoomLevel(current + delta);
+    },
+    [setZoomLevel]
+  );
   const { connect } = useWebSocket();
   const roomId = useRoomId();
   const disconnect = useDisconnect();
@@ -81,6 +92,22 @@ export function BoardPage() {
       // Don't trigger shortcuts when typing in inputs
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
         return;
+      }
+
+      // Ctrl/Cmd + Plus/Equal = zoom in, Ctrl/Cmd + Minus = zoom out
+      if (e.ctrlKey || e.metaKey) {
+        if (e.key === '=' || e.key === '+') {
+          e.preventDefault();
+          const current = useRoomStore.getState().zoomLevel;
+          useRoomStore.getState().setZoomLevel(Math.min(3, current + 0.25));
+          return;
+        }
+        if (e.key === '-') {
+          e.preventDefault();
+          const current = useRoomStore.getState().zoomLevel;
+          useRoomStore.getState().setZoomLevel(Math.max(0.5, current - 0.25));
+          return;
+        }
       }
 
       // Escape - clear selection first, or leave room
@@ -186,23 +213,33 @@ export function BoardPage() {
             <Toolbar />
 
             {/* Canvas container */}
-            <div className="canvas-container" ref={canvasContainerRef}>
+            <div
+              className="canvas-container"
+              ref={canvasContainerRef}
+              onWheel={handleCanvasWheel}
+            >
               <div
                 className="canvas-wrapper"
                 style={{
-                  width: CANVAS_WIDTH,
-                  height: CANVAS_HEIGHT,
+                  width: canvasDimensions.width,
+                  height: canvasDimensions.height,
                   position: 'relative',
+                  transform: `scale(${zoomLevel})`,
+                  transformOrigin: '0 0',
                 }}
               >
                 <BoardCanvas
-                  width={CANVAS_WIDTH}
-                  height={CANVAS_HEIGHT}
+                  width={canvasDimensions.width}
+                  height={canvasDimensions.height}
+                  offsetX={canvasDimensions.offsetX}
+                  offsetY={canvasDimensions.offsetY}
                   containerRef={canvasContainerRef}
                 />
                 <CursorLayer
-                  canvasWidth={CANVAS_WIDTH}
-                  canvasHeight={CANVAS_HEIGHT}
+                  canvasWidth={canvasDimensions.width}
+                  canvasHeight={canvasDimensions.height}
+                  offsetX={canvasDimensions.offsetX}
+                  offsetY={canvasDimensions.offsetY}
                 />
               </div>
             </div>

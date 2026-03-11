@@ -22,6 +22,7 @@ export const MessageType = {
   StrokeAdd: 'stroke_add',
   StrokeEnd: 'stroke_end',
   StrokeMove: 'stroke_move',
+  StrokeDelete: 'stroke_delete',
 
   // State messages (reliable, on-demand)
   RoomState: 'room_state',
@@ -331,6 +332,11 @@ export interface ServerStrokeMoveData {
   dy: number;
 }
 
+export interface ServerStrokeDeleteData {
+  strokeId: string;
+  userId: string;
+}
+
 export interface RoomStateData {
   strokes: Array<{
     strokeId: string;
@@ -449,6 +455,10 @@ export function createStrokeEndMessage(strokeId: string): ClientMessage<StrokeEn
 
 export function createStrokeMoveMessage(strokeId: string, dx: number, dy: number): ClientMessage<StrokeMoveData> {
   return createClientMessage(MessageType.StrokeMove, { strokeId, dx, dy });
+}
+
+export function createStrokeDeleteMessage(strokeId: string): ClientMessage<{ strokeId: string }> {
+  return createClientMessage(MessageType.StrokeDelete, { strokeId });
 }
 
 export function createPingMessage(): ClientMessage<Record<string, never>> {

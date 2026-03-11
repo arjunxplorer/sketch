@@ -138,6 +138,13 @@ public:
                data.contains("dy") && data["dy"].is_number();
     }
 
+    /**
+     * @brief Validate stroke_delete message data.
+     */
+    static bool validateStrokeDelete(const json& data) {
+        return data.contains("strokeId") && data["strokeId"].is_string();
+    }
+
     // =========================================================================
     // Data Extraction Helpers
     // =========================================================================
@@ -301,6 +308,19 @@ public:
             {"dy", dy}
         };
         return createMessage(MessageType::StrokeMove, seq, data).dump();
+    }
+
+    /**
+     * @brief Create stroke_delete message.
+     */
+    static std::string createStrokeDelete(const std::string& strokeId,
+                                           const std::string& oderId,
+                                           uint64_t seq) {
+        json data = {
+            {"strokeId", strokeId},
+            {"userId", oderId}
+        };
+        return createMessage(MessageType::StrokeDelete, seq, data).dump();
     }
 
     /**

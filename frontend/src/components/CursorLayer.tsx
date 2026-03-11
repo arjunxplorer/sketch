@@ -10,6 +10,8 @@ import { smoothPosition } from '../utils/lerp';
 interface CursorLayerProps {
   canvasWidth: number;
   canvasHeight: number;
+  offsetX?: number;
+  offsetY?: number;
 }
 
 interface InterpolatedCursor {
@@ -21,7 +23,7 @@ interface InterpolatedCursor {
   color: string;
 }
 
-export function CursorLayer({ canvasWidth, canvasHeight }: CursorLayerProps) {
+export function CursorLayer({ canvasWidth, canvasHeight, offsetX = 0, offsetY = 0 }: CursorLayerProps) {
   const [interpolatedCursors, setInterpolatedCursors] = useState<InterpolatedCursor[]>([]);
   const lastFrameTimeRef = useRef(performance.now());
   const interpolatedRef = useRef(new Map<string, { x: number; y: number }>());
@@ -127,8 +129,8 @@ export function CursorLayer({ canvasWidth, canvasHeight }: CursorLayerProps) {
             className={`remote-cursor ${isGhost ? 'ghost' : ''}`}
             style={{
               position: 'absolute',
-              left: cursor.x,
-              top: cursor.y,
+              left: cursor.x + offsetX,
+              top: cursor.y + offsetY,
               opacity: cursor.opacity,
               transform: 'translate(-2px, -2px)',
             }}

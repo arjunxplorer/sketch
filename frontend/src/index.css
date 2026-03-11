@@ -188,12 +188,12 @@ body {
   position: relative;
 }
 
-/* Canvas container */
+/* Canvas container - align top-left so canvas grows right/down; top content stays visible */
 .canvas-container {
   flex: 1;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  align-items: flex-start;
+  justify-content: flex-start;
   overflow: auto;
   padding: var(--spacing-md);
   background: 
@@ -391,6 +391,45 @@ body {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 3px;
+}
+
+.zoom-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.zoom-btn {
+  width: 24px;
+  height: 24px;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.zoom-level {
+  font-size: 10px;
+  color: var(--text-secondary);
+  min-width: 36px;
+  text-align: center;
+}
+
+.zoom-reset-btn {
+  width: 100%;
+  padding: 4px 8px;
+  font-size: 10px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.zoom-reset-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
 }
 
 .size-option {

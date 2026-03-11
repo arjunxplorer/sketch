@@ -233,6 +233,21 @@ public:
         return strokes_.size();
     }
 
+    /**
+     * @brief Remove a stroke by ID.
+     * @return true if removed, false if not found
+     */
+    bool removeStroke(const std::string& strokeId) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto it = std::remove_if(strokes_.begin(), strokes_.end(),
+            [&strokeId](const Stroke& s) { return s.strokeId == strokeId; });
+        if (it != strokes_.end()) {
+            strokes_.erase(it, strokes_.end());
+            return true;
+        }
+        return false;
+    }
+
     // =========================================================================
     // Sequence Numbers
     // =========================================================================

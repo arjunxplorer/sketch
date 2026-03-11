@@ -12,6 +12,9 @@ import { ToolType } from '../lib/protocol';
 interface UseDrawingOptions {
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
   containerRef?: React.RefObject<HTMLDivElement | null>;
+  /** Offset for content that extends left/up of origin (converts canvas pixel to content coords) */
+  offsetX?: number;
+  offsetY?: number;
 }
 
 interface UseDrawingReturn {
@@ -22,7 +25,7 @@ interface UseDrawingReturn {
   isDrawing: boolean;
 }
 
-export function useDrawing({ canvasRef, containerRef }: UseDrawingOptions): UseDrawingReturn {
+export function useDrawing({ canvasRef, containerRef, offsetX = 0, offsetY = 0 }: UseDrawingOptions): UseDrawingReturn {
   const isConnected = useIsConnected();
   const activeTool = useActiveTool();
   const { selectObjectAt, moveSelectedObject, sendStrokeMove } = useSelection();
@@ -48,7 +51,7 @@ export function useDrawing({ canvasRef, containerRef }: UseDrawingOptions): UseD
   const dragStartRef = useRef<{ x: number; y: number } | null>(null);
   const totalDragDeltaRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
-  // Get canvas-relative coordinates
+  // Get content coordinates (canvas pixel minus offset for content that extends left/up)
   const getCanvasCoords = useCallback((e: React.PointerEvent): { x: number; y: number } | null => {
     const canvas = canvasRef.current;
     if (!canvas) return null;
@@ -57,11 +60,14 @@ export function useDrawing({ canvasRef, containerRef }: UseDrawingOptions): UseD
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
 
+    const canvasX = (e.clientX - rect.left) * scaleX;
+    const canvasY = (e.clientY - rect.top) * scaleY;
+
     return {
-      x: (e.clientX - rect.left) * scaleX,
-      y: (e.clientY - rect.top) * scaleY,
+      x: canvasX - offsetX,
+      y: canvasY - offsetY,
     };
-  }, [canvasRef]);
+  }, [canvasRef, offsetX, offsetY]);
 
   // Check if current tool is a drawing tool
   const isDrawingTool = useCallback((tool: string) => {
@@ -206,10 +212,14 @@ export function useDrawing({ canvasRef, containerRef }: UseDrawingOptions): UseD
 
     // Select - stop dragging, sync move to other users
     if (isDraggingRef.current) {
-      const selectedStrokeId = useRoomStore.getState().selectedStrokeId;
+      const { selectedStrokeId, selectedElementId } = useRoomStore.getState();
       const { x: dx, y: dy } = totalDragDeltaRef.current;
-      if (selectedStrokeId && (dx !== 0 || dy !== 0)) {
-        sendStrokeMove(selectedStrokeId, dx, dy);
+      if ((dx !== 0 || dy !== 0)) {
+        // Send for stroke (pen/shapes) or element (text - id = strokeId in backend)
+        const idToSync = selectedStrokeId ?? selectedElementId;
+        if (idToSync) {
+          sendStrokeMove(idToSync, dx, dy);
+        }
       }
       isDraggingRef.current = false;
       dragStartRef.current = null;

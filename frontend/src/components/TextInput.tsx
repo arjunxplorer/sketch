@@ -11,13 +11,28 @@ interface TextInputProps {
   y: number;
   fontSize: number;
   color: string;
+  initialValue?: string;
+  /** Element id when editing; used to detect switching to a different element */
+  elementId?: string;
+  /** Scale factor for positioning (canvas display size / logical size) */
+  scaleX?: number;
+  scaleY?: number;
   onSubmit: (text: string) => void;
   onCancel: () => void;
 }
 
-export function TextInput({ x, y, fontSize, color, onSubmit, onCancel }: TextInputProps) {
-  const [text, setText] = useState('');
+export function TextInput({ x, y, fontSize, color, initialValue = '', elementId, scaleX = 1, scaleY = 1, onSubmit, onCancel }: TextInputProps) {
+  const [text, setText] = useState(initialValue);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const lastElementIdRef = useRef<string | undefined>(elementId);
+
+  // Sync initialValue only on mount or when switching to a different element (avoids overwriting user typing)
+  useEffect(() => {
+    if (elementId !== lastElementIdRef.current) {
+      lastElementIdRef.current = elementId;
+      setText(initialValue);
+    }
+  }, [initialValue, elementId]);
 
   // Ensure text is visible - use white if color is too dark
   const displayColor = color === '#000000' ? '#ffffff' : color;
@@ -25,6 +40,16 @@ export function TextInput({ x, y, fontSize, color, onSubmit, onCancel }: TextInp
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
+
+  // When editing existing text, put cursor at end (defer to after layout)
+  useEffect(() => {
+    if (!initialValue || !inputRef.current) return;
+    const len = initialValue.length;
+    const id = requestAnimationFrame(() => {
+      inputRef.current?.setSelectionRange(len, len);
+    });
+    return () => cancelAnimationFrame(id);
+  }, [initialValue]);
 
   // Auto-resize textarea to fit content
   const adjustHeight = useCallback(() => {
@@ -80,8 +105,8 @@ export function TextInput({ x, y, fontSize, color, onSubmit, onCancel }: TextInp
       onBlur={handleBlur}
       style={{
         position: 'absolute',
-        left: x,
-        top: y,
+        left: x * scaleX,
+        top: y * scaleY,
         fontSize: `${fontSize}px`,
         color: displayColor,
         fontFamily: "'JetBrains Mono', monospace",

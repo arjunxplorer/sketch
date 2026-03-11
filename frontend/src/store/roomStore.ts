@@ -29,19 +29,21 @@ import {
   ServerStrokeAddData,
   ServerStrokeEndData,
   ServerStrokeMoveData,
+  ServerStrokeDeleteData,
   RoomStateData,
   ErrorData,
   createJoinRoomMessage,
   createStrokeStartMessage,
   createStrokeEndMessage,
   createStrokeMoveMessage,
+  createStrokeDeleteMessage,
   ProtocolConstants,
 } from '../lib/protocol';
 import { WsClient, ConnectionStatus } from '../lib/wsClient';
 import { Outbox } from '../lib/outbox';
 import { Inbox } from '../lib/inbox';
 import { generateUUID } from '../utils/idGenerator';
-import { hitTest } from '../utils/hitTest';
+import { hitTest, getErasedIds } from '../utils/hitTest';
 import { saveRoomCredentials, clearRoomCredentials } from '../utils/roomPersistence';
 
 // =============================================================================
@@ -91,6 +93,9 @@ export interface RoomState {
   fillColor: string | null;
   fontSize: number;
 
+  // View settings
+  zoomLevel: number;
+
   // Actions
   connect: (wsUrl: string, roomId: string, userName: string, password?: string) => void;
   disconnect: () => void;
@@ -111,12 +116,15 @@ export interface RoomState {
   setFillColor: (color: string | null) => void;
   setFontSize: (size: number) => void;
   setActiveTool: (tool: ToolTypeValue) => void;
+  setZoomLevel: (level: number) => void;
 
   // Element operations
   startElement: (x: number, y: number) => void;
   updateElement: (x: number, y: number) => void;
   finishElement: () => void;
   addTextElement: (x: number, y: number, text: string) => void;
+  updateTextElement: (elementId: string, newText: string) => void;
+  deleteTextElement: (elementId: string) => void;
 
   // Selection operations
   selectObjectAt: (x: number, y: number) => void;
@@ -300,6 +308,7 @@ const initialState = {
   penWidth: 4,
   fillColor: null as string | null,
   fontSize: 20,
+  zoomLevel: 1,
 };
 
 // =============================================================================
@@ -561,30 +570,74 @@ export const useRoomStore = create<RoomState>()(
           // Don't process our own stroke_move - we already applied locally
           if (data.userId === state.userId) break;
 
-          const strokes = state.strokes.map((s) => {
-            if (s.strokeId !== data.strokeId) return s;
-            return {
-              ...s,
-              points: s.points.map((p) => ({ x: p.x + data.dx, y: p.y + data.dy })),
-            };
-          });
-          set({ strokes });
+          // Text elements are in elements array - update x,y there
+          if (data.strokeId.startsWith('txt:')) {
+            const elements = state.elements.map((el) => {
+              if (el.id !== data.strokeId) return el;
+              return { ...el, x: el.x + data.dx, y: el.y + data.dy };
+            });
+            set({ elements });
+          } else {
+            const strokes = state.strokes.map((s) => {
+              if (s.strokeId !== data.strokeId) return s;
+              return {
+                ...s,
+                points: s.points.map((p) => ({ x: p.x + data.dx, y: p.y + data.dy })),
+              };
+            });
+            set({ strokes });
+          }
+          break;
+        }
+
+        case MessageType.StrokeDelete: {
+          const data = msg.data as ServerStrokeDeleteData;
+          set((s) => ({
+            strokes: s.strokes.filter((st) => st.strokeId !== data.strokeId),
+            elements: s.elements.filter((el) => el.id !== data.strokeId),
+          }));
           break;
         }
 
         case MessageType.RoomState: {
           const data = msg.data as RoomStateData;
           
-          const strokes: Stroke[] = data.strokes.map((s) => ({
-            strokeId: s.strokeId,
-            userId: s.userId,
-            points: s.points.map(([x, y]) => ({ x, y })),
-            color: s.color,
-            width: s.width,
-            complete: s.complete,
-          }));
-          
-          set({ strokes });
+          const strokes: Stroke[] = [];
+          const textElements: TextElement[] = [];
+
+          for (const s of data.strokes) {
+            if (s.strokeId.startsWith('txt:')) {
+              try {
+                const encodedData = s.strokeId.slice(4);
+                const textData = JSON.parse(atob(encodedData)) as { text: string; fontSize: number; x: number; y: number };
+                textElements.push({
+                  id: s.strokeId,
+                  type: 'text',
+                  userId: s.userId,
+                  x: textData.x,
+                  y: textData.y,
+                  text: textData.text,
+                  color: s.color,
+                  strokeWidth: 1,
+                  fontSize: textData.fontSize,
+                  complete: true,
+                });
+              } catch (e) {
+                console.error('Failed to decode text from RoomState:', e);
+              }
+            } else {
+              strokes.push({
+                strokeId: s.strokeId,
+                userId: s.userId,
+                points: s.points.map(([x, y]) => ({ x, y })),
+                color: s.color,
+                width: s.width,
+                complete: s.complete,
+              });
+            }
+          }
+
+          set({ strokes, elements: textElements });
           break;
         }
 
@@ -646,7 +699,7 @@ export const useRoomStore = create<RoomState>()(
       
       if (!wsClient || connectionStatus !== 'connected') return;
 
-      // Eraser uses the canvas background color
+      // Eraser uses the canvas background color (not sent to server - used for overlap detection only)
       const ERASER_COLOR = '#2a2a2a';
       const strokeColor = isEraser ? ERASER_COLOR : penColor;
       const strokeWidth = isEraser ? 20 : penWidth; // Eraser is thicker
@@ -661,9 +714,10 @@ export const useRoomStore = create<RoomState>()(
         complete: false,
       };
 
-      // Send stroke start to server
-      const msg = createStrokeStartMessage(strokeId, strokeColor, strokeWidth);
-      wsClient.send(msg);
+      // Only send stroke to server for pen (eraser is local-only for overlap detection)
+      if (!isEraser) {
+        wsClient.send(createStrokeStartMessage(strokeId, strokeColor, strokeWidth));
+      }
 
       set({ activeStroke, currentStrokeId: strokeId });
     },
@@ -671,9 +725,9 @@ export const useRoomStore = create<RoomState>()(
     addStrokePoint: (x: number, y: number) => {
       const { activeStroke, outbox, currentStrokeId } = get();
       
-      if (!activeStroke || !outbox || !currentStrokeId) return;
+      if (!activeStroke || !currentStrokeId) return;
 
-      // Add point to local stroke
+      const isEraser = activeStroke.color === '#2a2a2a';
       const newPoints = [...activeStroke.points, { x, y }];
       set({
         activeStroke: {
@@ -682,8 +736,10 @@ export const useRoomStore = create<RoomState>()(
         },
       });
 
-      // Queue point for batched sending
-      outbox.queueStrokePoint(currentStrokeId, x, y);
+      // Only send points to server for pen (eraser is local-only)
+      if (!isEraser && outbox) {
+        outbox.queueStrokePoint(currentStrokeId, x, y);
+      }
     },
 
     endStroke: () => {
@@ -691,24 +747,45 @@ export const useRoomStore = create<RoomState>()(
       
       if (!activeStroke || !wsClient || !currentStrokeId) return;
 
-      // Flush any pending points
-      outbox?.flushStroke(currentStrokeId);
+      const isEraser = activeStroke.color === '#2a2a2a';
 
-      // Send stroke end
-      const msg = createStrokeEndMessage(currentStrokeId);
-      wsClient.send(msg);
+      if (isEraser) {
+        // Eraser: find overlapping strokes/elements and delete them (don't keep eraser stroke)
+        const state = get();
+        const eraserRadius = activeStroke.width / 2;
+        const idsToDelete = getErasedIds(
+          activeStroke.points,
+          eraserRadius,
+          state.strokes,
+          state.elements
+        );
 
-      // Move active stroke to completed strokes - use callback to get latest state
-      const completedStroke: Stroke = {
-        ...activeStroke,
-        complete: true,
-      };
+        for (const id of idsToDelete) {
+          wsClient.send(createStrokeDeleteMessage(id));
+        }
 
-      set((state) => ({
-        strokes: [...state.strokes, completedStroke],
-        activeStroke: null,
-        currentStrokeId: null,
-      }));
+        set((s) => ({
+          strokes: s.strokes.filter((st) => !idsToDelete.includes(st.strokeId)),
+          elements: s.elements.filter((el) => !idsToDelete.includes(el.id)),
+          activeStroke: null,
+          currentStrokeId: null,
+        }));
+      } else {
+        // Pen: flush, send end, add to completed strokes
+        outbox?.flushStroke(currentStrokeId);
+        wsClient.send(createStrokeEndMessage(currentStrokeId));
+
+        const completedStroke: Stroke = {
+          ...activeStroke,
+          complete: true,
+        };
+
+        set((state) => ({
+          strokes: [...state.strokes, completedStroke],
+          activeStroke: null,
+          currentStrokeId: null,
+        }));
+      }
     },
 
     // =========================================================================
@@ -733,6 +810,11 @@ export const useRoomStore = create<RoomState>()(
 
     setActiveTool: (tool: ToolTypeValue) => {
       set({ activeTool: tool });
+    },
+
+    setZoomLevel: (level: number) => {
+      const clamped = Math.max(0.5, Math.min(3, level));
+      set({ zoomLevel: clamped });
     },
 
     // =========================================================================
@@ -995,6 +1077,63 @@ export const useRoomStore = create<RoomState>()(
       set((state) => ({ 
         elements: [...state.elements, element],
       }));
+    },
+
+    deleteTextElement: (elementId: string) => {
+      const { wsClient } = get();
+      if (!wsClient) return;
+      wsClient.send(createStrokeDeleteMessage(elementId));
+      set((s) => ({
+        elements: s.elements.filter((e) => e.id !== elementId),
+      }));
+    },
+
+    updateTextElement: (elementId: string, newText: string) => {
+      const { elements, wsClient, userId, outbox } = get();
+      const existing = elements.find((e) => e.id === elementId && e.type === 'text') as TextElement | undefined;
+      if (!existing || !wsClient || !newText.trim() || !userId) return;
+
+      const textColor = existing.color;
+      const x = existing.x;
+      const y = existing.y;
+
+      const textData = { text: newText.trim(), fontSize: existing.fontSize, x, y };
+      const encodedData = btoa(JSON.stringify(textData));
+      const newStrokeId = `txt:${encodedData}`;
+
+      const points = [{ x, y }, { x: x + 1, y: y + 1 }];
+
+      const newElement: TextElement = {
+        id: newStrokeId,
+        type: 'text',
+        userId,
+        x,
+        y,
+        text: newText.trim(),
+        color: textColor,
+        strokeWidth: 1,
+        fontSize: existing.fontSize,
+        complete: true,
+      };
+
+      // Atomic local update: remove old, add new in one set()
+      set((state) => ({
+        elements: [
+          ...state.elements.filter((e) => e.id !== elementId),
+          newElement,
+        ],
+      }));
+
+      // Send to backend (delete old, then add new)
+      wsClient.send(createStrokeDeleteMessage(elementId));
+      wsClient.send(createStrokeStartMessage(newStrokeId, textColor, 1));
+      if (outbox) {
+        for (const point of points) {
+          outbox.queueStrokePoint(newStrokeId, point.x, point.y);
+        }
+        outbox.flushStroke(newStrokeId);
+      }
+      wsClient.send(createStrokeEndMessage(newStrokeId));
     },
 
     // =========================================================================

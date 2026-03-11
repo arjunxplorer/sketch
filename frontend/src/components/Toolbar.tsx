@@ -3,7 +3,7 @@
  */
 
 import { useDrawingSettings } from '../hooks/useDrawing';
-import { useActiveTool, useSetActiveTool, useFillColor, useFontSize } from '../store/selectors';
+import { useActiveTool, useSetActiveTool, useFillColor, useFontSize, useZoomLevel, useSetZoomLevel } from '../store/selectors';
 import { useRoomStore } from '../store/roomStore';
 import { ToolType, ToolTypeValue } from '../lib/protocol';
 import { PEN_COLORS, STROKE_WIDTHS } from '../utils/colorUtils';
@@ -29,6 +29,8 @@ export function Toolbar() {
   const activeTool = useActiveTool();
   const setActiveTool = useSetActiveTool();
   const fillColor = useFillColor();
+  const zoomLevel = useZoomLevel();
+  const setZoomLevel = useSetZoomLevel();
   const setFillColor = useRoomStore((state) => state.setFillColor);
   const fontSize = useFontSize();
   const setFontSize = useRoomStore((state) => state.setFontSize);
@@ -127,6 +129,41 @@ export function Toolbar() {
           </div>
         </>
       )}
+
+      <div className="toolbar-divider-h" />
+
+      {/* Zoom section */}
+      <div className="toolbar-section">
+        <span className="toolbar-label">Zoom</span>
+        <div className="zoom-controls">
+          <button
+            className="tool-button zoom-btn"
+            onClick={() => setZoomLevel(zoomLevel - 0.25)}
+            disabled={zoomLevel <= 0.5}
+            title="Zoom out"
+          >
+            −
+          </button>
+          <span className="zoom-level" title="Ctrl+scroll to zoom">
+            {Math.round(zoomLevel * 100)}%
+          </span>
+          <button
+            className="tool-button zoom-btn"
+            onClick={() => setZoomLevel(zoomLevel + 0.25)}
+            disabled={zoomLevel >= 3}
+            title="Zoom in"
+          >
+            +
+          </button>
+        </div>
+        <button
+          className="zoom-reset-btn"
+          onClick={() => setZoomLevel(1)}
+          title="Reset zoom (100%)"
+        >
+          Reset
+        </button>
+      </div>
 
       <div className="toolbar-divider-h" />
 

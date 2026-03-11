@@ -173,6 +173,37 @@ public:
     }
 
     /**
+     * @brief Handle stroke_delete message (remove stroke from board).
+     * @return Error code if failed, nullopt if success
+     */
+    std::optional<ErrorCode> handleStrokeDelete(
+        Room& room,
+        const std::string& oderId,
+        const std::string& strokeId,
+        std::function<void(std::shared_ptr<WsSession>, const std::string&)> sendFunc) {
+
+        Stroke* stroke = room.getStroke(strokeId);
+        if (!stroke) {
+            return ErrorCode::InvalidStroke;
+        }
+
+        // Any user can delete any stroke (eraser can erase others' work in collaboration)
+        if (!room.removeStroke(strokeId)) {
+            return ErrorCode::InvalidStroke;
+        }
+
+        // Broadcast to all users (including sender, so they sync)
+        uint64_t seq = room.nextSequence();
+        std::string message = MessageCodec::createStrokeDelete(strokeId, oderId, seq);
+
+        room.broadcast(message, "", [&sendFunc, &message](std::shared_ptr<WsSession> session) {
+            sendFunc(session, message);
+        });
+
+        return std::nullopt;  // Success
+    }
+
+    /**
      * @brief Get board snapshot for a room.
      * @param room The room to snapshot
      * @return Snapshot message string

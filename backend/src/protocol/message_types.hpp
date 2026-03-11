@@ -36,6 +36,7 @@ enum class MessageType {
    StrokeAdd,      // Client -> Server: Add points to stroke
    StrokeEnd,      // Client -> Server: Complete stroke
    StrokeMove,     // Client -> Server: Move completed stroke by dx, dy
+   StrokeDelete,   // Client -> Server: Delete a stroke (e.g. eraser)
 
    // State messages (reliable, on-demand)
    RoomState,      // Server -> Client: Full board snapshot
@@ -94,8 +95,9 @@ namespace MessageTypeStrings {
     constexpr std::string_view StrokeStart = "stroke_start";
     constexpr std::string_view StrokeAdd   = "stroke_add";
     constexpr std::string_view StrokeEnd   = "stroke_end";
-    constexpr std::string_view StrokeMove  = "stroke_move";
-    constexpr std::string_view RoomState   = "room_state";
+    constexpr std::string_view StrokeMove   = "stroke_move";
+    constexpr std::string_view StrokeDelete = "stroke_delete";
+    constexpr std::string_view RoomState    = "room_state";
     constexpr std::string_view Ping        = "ping";
     constexpr std::string_view Pong        = "pong";
     constexpr std::string_view Error       = "error";
@@ -136,8 +138,9 @@ namespace ErrorCodeStrings {
         {MessageTypeStrings::StrokeStart, MessageType::StrokeStart},
         {MessageTypeStrings::StrokeAdd,   MessageType::StrokeAdd},
         {MessageTypeStrings::StrokeEnd,   MessageType::StrokeEnd},
-        {MessageTypeStrings::StrokeMove,  MessageType::StrokeMove},
-        {MessageTypeStrings::RoomState,   MessageType::RoomState},
+        {MessageTypeStrings::StrokeMove,   MessageType::StrokeMove},
+        {MessageTypeStrings::StrokeDelete, MessageType::StrokeDelete},
+        {MessageTypeStrings::RoomState,    MessageType::RoomState},
         {MessageTypeStrings::Ping,        MessageType::Ping},
         {MessageTypeStrings::Pong,        MessageType::Pong},
         {MessageTypeStrings::Error,       MessageType::Error}
@@ -163,8 +166,9 @@ inline std::string_view messageTypeToString(MessageType type) {
         case MessageType::StrokeStart: return MessageTypeStrings::StrokeStart;
         case MessageType::StrokeAdd:   return MessageTypeStrings::StrokeAdd;
         case MessageType::StrokeEnd:   return MessageTypeStrings::StrokeEnd;
-        case MessageType::StrokeMove:  return MessageTypeStrings::StrokeMove;
-        case MessageType::RoomState:   return MessageTypeStrings::RoomState;
+        case MessageType::StrokeMove:   return MessageTypeStrings::StrokeMove;
+        case MessageType::StrokeDelete: return MessageTypeStrings::StrokeDelete;
+        case MessageType::RoomState:    return MessageTypeStrings::RoomState;
         case MessageType::Ping:        return MessageTypeStrings::Ping;
         case MessageType::Pong:        return MessageTypeStrings::Pong;
         case MessageType::Error:       return MessageTypeStrings::Error;
